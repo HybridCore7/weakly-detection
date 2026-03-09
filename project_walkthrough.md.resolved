@@ -1,0 +1,194 @@
+# 🛡️ DeepFake Detection System — Project Walkthrough
+
+## Project Structure (36 Files)
+
+```mermaid
+graph TD
+    A[deepfake-detection/] --> B[src/models/]
+    A --> C[src/data/]
+    A --> D[src/training/]
+    A --> E[src/inference/]
+    A --> F[src/utils/]
+    A --> G[scripts/]
+    A --> H[web/]
+    A --> I[tests/]
+    A --> J[config/]
+
+    B --> B1["xception_net.py — Primary CNN classifier"]
+    B --> B2["efficient_net.py — EfficientNet-B4 backbone"]
+    B --> B3["attention_module.py — CBAM, Frequency Attention"]
+    B --> B4["autoencoder.py — VAE anomaly detector"]
+    B --> B5["contrastive.py — SimCLR representation learning"]
+    B --> B6["ensemble.py — Multi-model fusion"]
+
+    C --> C1["dataset.py — Image & video datasets"]
+    C --> C2["face_extractor.py — MTCNN face extraction"]
+    C --> C3["augmentation.py — Deepfake-specific augments"]
+    C --> C4["preprocessing.py — Image/video preprocessing"]
+
+    D --> D1["trainer.py — Full training loop with AMP"]
+    D --> D2["losses.py — Focal, Combined, VAE losses"]
+    D --> D3["metrics.py — Accuracy, AUC, F1, confusion matrix"]
+
+    E --> E1["predictor.py — Inference pipeline with TTA"]
+    E --> E2["grad_cam.py — Grad-CAM & Grad-CAM++ explainability"]
+```
+
+## Model Architectures
+
+### 1. XceptionNet ([xception_net.py](file:///d:/weakly%20detection/src/models/xception_net.py))
+
+````carousel
+```
+Architecture: Entry Flow → Middle Flow (×8) → Exit Flow → Classifier
+
+Key Features:
+• Depthwise separable convolutions
+• CBAM attention at key stages
+• 2048-dim feature maps before classification
+• Kaiming weight initialization
+```
+<!-- slide -->
+```python
+# Usage
+from src.models import XceptionNet
+model = XceptionNet(num_classes=2, use_attention=True, pretrained=True)
+output = model(torch.randn(1, 3, 299, 299))  # → (1, 2)
+features = model.extract_features(x)           # → (1, 2048, H, W)
+```
+````
+
+### 2. EfficientNet-B4 ([efficient_net.py](file:///d:/weakly%20detection/src/models/efficient_net.py))
+
+- Uses `timm` pretrained backbone when available
+- Fallback custom MBConv architecture when timm is absent
+- CBAM + Frequency-domain attention heads
+- 2-layer classification MLP with dropout
+
+### 3. Variational Autoencoder ([autoencoder.py](file:///d:/weakly%20detection/src/models/autoencoder.py))
+
+> [!IMPORTANT]
+> The autoencoder uses a **dual-task approach**: reconstruction-based anomaly detection + direct latent-space classification. Deepfakes produce higher reconstruction errors.
+
+- Encoder: 3→64→128→256→512 with residual blocks
+- Decoder: Mirrors encoder with transposed convolutions
+- Reparameterization trick for VAE training
+- Classification from both latent space AND reconstruction error
+
+### 4. Contrastive Learning ([contrastive.py](file:///d:/weakly%20detection/src/models/contrastive.py))
+
+- SimCLR-style self-supervised learning
+- **NT-Xent Loss** for unsupervised pretraining
+- **Supervised Contrastive Loss** when labels are available
+- Two modes: `'contrastive'` (pretraining) and `'classify'` (inference)
+- Freeze/unfreeze backbone for linear probing
+
+### 5. Ensemble Fusion ([ensemble.py](file:///d:/weakly%20detection/src/models/ensemble.py))
+
+```
+Fusion strategies:
+├── attention    — Learned attention weights per model (recommended)
+├── mlp          — MLP-based prediction fusion
+└── weighted_avg — Fixed weighted average
+```
+
+## Training Pipeline
+
+| Feature | Implementation |
+|---------|---------------|
+| Mixed Precision | PyTorch AMP with GradScaler |
+| Gradient Accumulation | Configurable N-step accumulation |
+| LR Scheduling | Cosine annealing with warm restarts |
+| Early Stopping | Patience-based on val AUC |
+| Loss Functions | Focal Loss, Combined Loss, VAE Loss |
+| Logging | TensorBoard + Rich console |
+| Checkpointing | Best model + periodic saves |
+
+## Web Dashboard
+
+> [!TIP]
+> The web app includes a **demo mode** that generates realistic simulated predictions, so you can showcase the UI immediately without a trained model.
+
+### Starting the Dashboard
+
+```bash
+cd web
+pip install fastapi uvicorn python-multipart jinja2 aiofiles
+python app.py
+# Open http://localhost:8000
+```
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Main dashboard page |
+| `/api/analyze` | POST | Upload & analyze file |
+| `/api/health` | GET | System health check |
+| `/api/models` | GET | List available models |
+
+## Getting Started
+
+### Step 1: Install Dependencies
+```bash
+cd "d:\weakly detection"
+pip install -r requirements.txt
+```
+
+### Step 2: Prepare Dataset
+```
+data/
+├── train/
+│   ├── real/    # Real face images
+│   └── fake/    # Deepfake images
+├── val/
+│   ├── real/
+│   └── fake/
+└── test/
+    ├── real/
+    └── fake/
+```
+
+### Step 3: Train
+```bash
+python scripts/train.py --config config/config.yaml --model xception --epochs 50
+```
+
+### Step 4: Evaluate
+```bash
+python scripts/evaluate.py --model-path checkpoints/best_model.pth --model xception --detailed
+```
+
+### Step 5: Launch Web Dashboard
+```bash
+cd web && python app.py
+```
+
+## Key Design Decisions
+
+> [!NOTE]
+> - **Focal Loss** is used by default instead of cross-entropy because deepfake datasets are often imbalanced
+> - **CBAM attention** is placed at entry, mid, and exit flow to capture manipulation artifacts at multiple scales
+> - **Frequency-domain attention** in EfficientNet detects GAN spectral artifacts invisible in spatial domain
+> - **Temperature scaling** in the ensemble calibrates confidence scores for reliable predictions
+> - The **autoencoder uses both reconstruction error AND latent-space classification** — this dual signal is more robust than either alone
+
+## Files Reference
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| [xception_net.py](file:///d:/weakly%20detection/src/models/xception_net.py) | ~200 | Primary XceptionNet classifier |
+| [efficient_net.py](file:///d:/weakly%20detection/src/models/efficient_net.py) | ~200 | EfficientNet-B4 with attention |
+| [autoencoder.py](file:///d:/weakly%20detection/src/models/autoencoder.py) | ~250 | VAE anomaly detector |
+| [contrastive.py](file:///d:/weakly%20detection/src/models/contrastive.py) | ~300 | SimCLR contrastive learning |
+| [ensemble.py](file:///d:/weakly%20detection/src/models/ensemble.py) | ~230 | Multi-model fusion |
+| [attention_module.py](file:///d:/weakly%20detection/src/models/attention_module.py) | ~200 | CBAM, MHSA, FreqAttn |
+| [trainer.py](file:///d:/weakly%20detection/src/training/trainer.py) | ~300 | Full training loop |
+| [losses.py](file:///d:/weakly%20detection/src/training/losses.py) | ~200 | Custom loss functions |
+| [metrics.py](file:///d:/weakly%20detection/src/training/metrics.py) | ~250 | Evaluation metrics |
+| [predictor.py](file:///d:/weakly%20detection/src/inference/predictor.py) | ~250 | Inference pipeline |
+| [grad_cam.py](file:///d:/weakly%20detection/src/inference/grad_cam.py) | ~220 | Explainability heatmaps |
+| [app.py](file:///d:/weakly%20detection/web/app.py) | ~280 | FastAPI web backend |
+| [style.css](file:///d:/weakly%20detection/web/static/css/style.css) | ~700 | Premium dark UI |
+| [app.js](file:///d:/weakly%20detection/web/static/js/app.js) | ~350 | Frontend logic |
+| [index.html](file:///d:/weakly%20detection/web/templates/index.html) | ~400 | Dashboard template |

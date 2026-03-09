@@ -1,0 +1,189 @@
+# ============================================================
+# DeepFake Detection System — Master Configuration
+# ============================================================
+
+# ----- Data Configuration -----
+data:
+  # Path to dataset root directory
+  dataset_root: "./data"
+  # Dataset type: faceforensics, dfdc, celebdf, custom
+  dataset_type: "faceforensics"
+  # Image dimensions (height, width)
+  image_size: [299, 299]
+  # Face extraction settings
+  face_extraction:
+    enabled: true
+    # Detector: mtcnn, dlib, retinaface
+    detector: "mtcnn"
+    # Margin around detected face (pixels)
+    margin: 40
+    # Minimum face confidence threshold
+    min_confidence: 0.95
+  # Data split ratios
+  split:
+    train: 0.7
+    val: 0.15
+    test: 0.15
+  # Number of data loading workers
+  num_workers: 4
+  # Pin memory for faster GPU transfer
+  pin_memory: true
+
+# ----- Augmentation Configuration -----
+augmentation:
+  # Training augmentations
+  train:
+    horizontal_flip: 0.5
+    random_rotation: 15
+    color_jitter:
+      brightness: 0.2
+      contrast: 0.2
+      saturation: 0.2
+      hue: 0.1
+    # Deepfake-specific augmentations
+    jpeg_compression:
+      quality_range: [30, 100]
+      probability: 0.5
+    gaussian_blur:
+      kernel_range: [3, 7]
+      probability: 0.3
+    gaussian_noise:
+      var_range: [0.001, 0.01]
+      probability: 0.3
+    random_erasing:
+      probability: 0.2
+      scale: [0.02, 0.15]
+  # Validation/Test — only normalize
+  val:
+    normalize: true
+
+# ----- Model Configuration -----
+model:
+  # Primary model: xception, efficientnet, autoencoder, contrastive, ensemble
+  architecture: "ensemble"
+  # Number of output classes (real, fake)
+  num_classes: 2
+  # Pretrained backbone weights
+  pretrained: true
+  # Dropout rate
+  dropout: 0.5
+
+  # XceptionNet settings
+  xception:
+    depth_multiplier: 1
+    use_attention: true
+
+  # EfficientNet settings
+  efficientnet:
+    variant: "efficientnet-b4"
+    use_attention: true
+
+  # Autoencoder settings
+  autoencoder:
+    latent_dim: 512
+    reconstruction_weight: 1.0
+    classification_weight: 0.5
+
+  # Contrastive Learning settings
+  contrastive:
+    projection_dim: 128
+    temperature: 0.07
+    embedding_dim: 512
+
+  # Ensemble settings
+  ensemble:
+    models: ["xception", "efficientnet", "autoencoder", "contrastive"]
+    weights: [0.35, 0.30, 0.15, 0.20]
+    fusion: "attention"  # attention, weighted_average, mlp
+
+# ----- Training Configuration -----
+training:
+  # Number of epochs
+  epochs: 50
+  # Batch size per GPU
+  batch_size: 16
+  # Accumulate gradients over N steps
+  gradient_accumulation_steps: 2
+  # Mixed precision training
+  mixed_precision: true
+  # Gradient clipping
+  max_grad_norm: 1.0
+
+  # Optimizer
+  optimizer:
+    type: "adamw"
+    learning_rate: 0.0001
+    weight_decay: 0.01
+    betas: [0.9, 0.999]
+
+  # Learning rate scheduler
+  scheduler:
+    type: "cosine_annealing_warm_restarts"
+    T_0: 10
+    T_mult: 2
+    eta_min: 0.000001
+
+  # Loss function
+  loss:
+    type: "focal"  # focal, cross_entropy, combined
+    focal_alpha: 0.25
+    focal_gamma: 2.0
+    # Label smoothing
+    label_smoothing: 0.1
+
+  # Early stopping
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 0.001
+    monitor: "val_auc"
+
+  # Checkpointing
+  checkpoint:
+    save_dir: "./checkpoints"
+    save_best_only: true
+    save_frequency: 5
+
+# ----- Inference Configuration -----
+inference:
+  # Batch size for inference
+  batch_size: 32
+  # Use test-time augmentation
+  tta: true
+  # Number of TTA iterations
+  tta_iterations: 5
+  # Confidence threshold for classification
+  threshold: 0.5
+  # Generate Grad-CAM heatmaps
+  grad_cam: true
+  # Grad-CAM target layer
+  grad_cam_layer: "last_conv"
+
+# ----- Logging Configuration -----
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR
+  level: "INFO"
+  # Log directory
+  log_dir: "./logs"
+  # TensorBoard logging
+  tensorboard: true
+  # Log every N steps
+  log_interval: 10
+  # Wandb logging (optional)
+  wandb:
+    enabled: false
+    project: "deepfake-detection"
+    entity: null
+
+# ----- Web Application Configuration -----
+web:
+  host: "0.0.0.0"
+  port: 8000
+  # Maximum upload file size (MB)
+  max_upload_size: 100
+  # Supported file formats
+  allowed_extensions: [".jpg", ".jpeg", ".png", ".mp4", ".avi", ".mov"]
+  # Model checkpoint for web inference
+  model_path: "./checkpoints/best_model.pth"
+  # Enable demo mode (simulated predictions)
+  demo_mode: true
