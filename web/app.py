@@ -39,7 +39,7 @@ try:
     HAS_FASTAPI = True
 except ImportError:
     HAS_FASTAPI = False
-    print("⚠ FastAPI not installed. Run: pip install fastapi uvicorn python-multipart jinja2")
+    print("[!] FastAPI not installed. Run: pip install fastapi uvicorn python-multipart jinja2")
 
 # Try to import model components
 try:
@@ -108,9 +108,9 @@ if HAS_FASTAPI:
                 model=model, device=device,
                 generate_heatmap=True
             )
-            print(f"✅ Model loaded from {MODEL_PATH}")
+            print(f"[OK] Model loaded from {MODEL_PATH}")
         except Exception as e:
-            print(f"⚠ Model loading failed: {e}")
+            print(f"[!] Model loading failed: {e}")
             print("  Running in demo mode")
             DEMO_MODE = True
 
@@ -236,11 +236,63 @@ if HAS_FASTAPI:
 
 def _demo_prediction(file_bytes: bytes, is_image: bool,
                      filename: str) -> dict:
-    """Generate realistic demo predictions for demonstration."""
+    """Generate realistic demo predictions for demonstration.
+    
+    In demo mode, we still run real face detection so we don't
+    falsely claim a face was found in non-face images.
+    """
     # Simulate processing time
     time.sleep(0.5 + random.random() * 1.5)
 
-    # Generate plausible demo result
+    # Actually try to detect a face (even in demo mode)
+    face_detected = False
+    if is_image:
+        try:
+            img = Image.open(io.BytesIO(file_bytes)).convert('RGB')
+            img_array = np.array(img)
+
+            # Try MTCNN face detection
+            try:
+                from facenet_pytorch import MTCNN
+                mtcnn = MTCNN(keep_all=False, device='cpu')
+                boxes, _ = mtcnn.detect(img)
+                face_detected = boxes is not None and len(boxes) > 0
+            except ImportError:
+                # Fallback: try OpenCV Haar cascade
+                try:
+                    import cv2
+                    gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+                    face_cascade = cv2.CascadeClassifier(
+                        cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+                    )
+                    faces = face_cascade.detectMultiScale(
+                        gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30)
+                    )
+                    face_detected = len(faces) > 0
+                except Exception:
+                    # If neither detector is available, be honest
+                    face_detected = False
+        except Exception:
+            face_detected = False
+    else:
+        # For video in demo mode, assume face might be present
+        face_detected = True
+
+    # If no face was detected, return a clear warning
+    if not face_detected:
+        return {
+            'prediction': 'N/A',
+            'confidence': 0.0,
+            'probabilities': {'Real': 0.0, 'Fake': 0.0},
+            'face_detected': False,
+            'model_contributions': {},
+            'suspicious_regions': [],
+            'analysis_time': round(0.5 + random.random() * 0.5, 2),
+            'demo_mode': True,
+            'warning': 'No face detected in this image. Please upload a photo or video containing a human face for deepfake analysis.',
+        }
+
+    # Generate plausible demo result (only when face IS detected)
     is_fake = random.random() > 0.5
     fake_confidence = random.uniform(0.75, 0.98) if is_fake else random.uniform(0.02, 0.25)
 
@@ -321,12 +373,12 @@ def _demo_prediction(file_bytes: bytes, is_image: bool,
 
 if __name__ == "__main__":
     if not HAS_FASTAPI:
-        print("❌ FastAPI not installed. Run:")
+        print("[ERROR] FastAPI not installed. Run:")
         print("   pip install fastapi uvicorn python-multipart jinja2 aiofiles")
         sys.exit(1)
 
     print("\n" + "=" * 60)
-    print("🛡️  DeepFake Detection System — Web Dashboard")
+    print("  DeepFake Detection System - Web Dashboard")
     print("=" * 60)
     print(f"  Mode: {'DEMO' if DEMO_MODE else 'PRODUCTION'}")
     print(f"  Model: {'Not loaded (demo)' if DEMO_MODE else MODEL_PATH}")
